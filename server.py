@@ -21,13 +21,31 @@ logging.basicConfig(
     format = "%(asctime)s %(levelname)s %(message)s"
 )
 
+BLOCKED_COLUMNS = {
+    ("customer", "email"), ("customer", "phone"), ("customer", "fax"),
+    ("customer", "address"),
+    ("employee", "email"), ("employee", "phone"), ("employee", "fax"),
+    ("employee", "address"), ("employee", "birthdate"),
+}
+
+def is_blocked(table: str, column: str) -> bool:
+    return (table.lower(), column.lower()) in BLOCKED_COLUMNS
+
+def authorizer(action, arg1, arg2, dbname, source):
+    #SQLITE_READ: arg1 = table, arg2 = column
+    if action == sqlite3.SQLITE_READ and arg1 and arg2 and is_blocked(arg1, arg2):
+        return sqlite3.SQLITE_DENY
+    return sqlite3.SQLITE_OK
+
 mcp = MCPServer("db-assistant")
 
-def get_conn() -> sqlite3.Connection:
+def get_conn(restricted: bool = False) -> sqlite3.Connection:
     # mode=ro makes the connection read-only at the database level
     conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     # Abort any query that runs longer than TIMEOUT_S
+    if restricted:
+        conn.set_authorizer(authorizer)
     deadline = time.monotonic() + TIMEOUT_S
     conn.set_progress_handler(
         lambda: 1 if time.monotonic() > deadline else 0, 10_000
@@ -78,7 +96,11 @@ def describe_table(name: str) -> dict:
             for f in conn.execute(f'PRAGMA foreign_key_list("{name}")')
         ]
 
-        sample = [dict(r) for r in conn.execute(f'SELECT * FROM "{name}" LIMIT 3')]
+        allowed = [c["name"] for c in columns if not is_blocked(name, c["name"])]
+        for c in columns:
+            c["restricted"] = is_blocked(name, c["name"])
+        cols_sql = ", ".join(f'"{c}"' for c in allowed)
+        sample = [dict(r) for r in conn.execute(f'SELECT {cols_sql} FROM "{name}" LIMIT 3')]
 
         return {'columns': columns, 'foreign_keys': fkeys, 'sample_rows': sample}
 
@@ -89,7 +111,7 @@ def run_query(sql: str) -> dict:
     logging.info("QUERY: %s", sql)
     try:
         validate_select(sql)
-        with closing(get_conn()) as conn:
+        with closing(get_conn(restricted=True)) as conn:
             cur = conn.execute(sql)
             rows = cur.fetchmany(MAX_ROWS + 1)
     
@@ -100,10 +122,10 @@ def run_query(sql: str) -> dict:
     truncated = len(rows) > MAX_ROWS
     rows = rows[:MAX_ROWS]
     return {
-    'columns': [d[0] for d in cur.description] if cur.description else [],
-    'rows': [list(r) for r in rows],
-    'row_count': len(rows),
-    'truncated': truncated
+        'columns': [d[0] for d in cur.description] if cur.description else [],
+        'rows': [list(r) for r in rows],
+        'row_count': len(rows),
+        'truncated': truncated
     }
 
 @mcp.resource("schema://main")
