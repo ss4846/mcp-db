@@ -1,6 +1,13 @@
 import asyncio
+from pathlib import Path
+
+from dotenv import load_dotenv
+
 from agents import Agent, Runner
 from agents.mcp import MCPServerStdio
+
+
+load_dotenv(Path(__file__).with_name(".env"))
 
 
 async def main():
@@ -18,12 +25,12 @@ async def main():
                 "You answer questions about a SQLite music-store database. "
                 "Always inspect the schema with the tools before writing SQL."
             ),
-            model="gpt-6.1-sol",  # use any model your key has access to
+            model="gpt-6.1-sol",
             mcp_servers=[server],
         )
         result = await Runner.run(
             agent,
-            "Which 5 artists have the most tracks, and which country spends the most?",
+            "List details of any three customers.",
         )
         print(result.final_output)
         print("\n--- steps taken ---")
