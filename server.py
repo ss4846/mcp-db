@@ -1,5 +1,6 @@
 import logging
 import time
+import json
 import sqlite3
 from pathlib import Path
 from mcp.server.mcpserver import MCPServer
@@ -104,6 +105,22 @@ def run_query(sql: str) -> dict:
     'row_count': len(rows),
     'truncated': truncated
     }
+
+@mcp.resource("schema://main")
+def schema_resource() -> str:
+    """The full database schema as CREATE statements."""
+    with closing(get_conn()) as conn:
+        rows = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY type, name"
+        ).fetchall()
+    
+    return "\n\n".join(r["sql"] + ";" for r in rows)
+
+@mcp.resource("table://{name}")
+def table_resource(name: str) -> str:
+    """Columns, foreign keys and sample rows from one table."""
+    return json.dumps(describe_table(name), indent=2, default=str)
+
 
 
 if __name__ == "__main__":
