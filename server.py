@@ -117,7 +117,10 @@ def run_query(sql: str) -> dict:
     
     except (sqlite3.Error, sqlite3.Warning, ValueError) as e:
         logging.warning("REJECTED/FAILED: %s", e)
-        raise ValueError(f"Query failed: {e}")
+        msg = f"Query failed: {e}"
+        if "prohibited" in str(e):
+            msg += ((" Some columns are restricted; select explicit column names(describe_table marks restricted columns)."))
+        raise ValueError(msg)
 
     truncated = len(rows) > MAX_ROWS
     rows = rows[:MAX_ROWS]
